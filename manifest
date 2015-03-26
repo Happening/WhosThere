@@ -1,5 +1,5 @@
-name: Nearby
-description: See if members are nearby a chosen geolocation
+name: Who's there?
+description: See if members are nearby a chosen location.
 icon: map3
 api: 2
-store: 300
+store: 700
