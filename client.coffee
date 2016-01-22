@@ -6,7 +6,7 @@ Loglist = require 'loglist'
 Obs = require 'obs'
 Page = require 'page'
 Photo = require 'photo'
-Plugin = require 'plugin'
+App = require 'app'
 Server = require 'server'
 Time = require 'time'
 Ui = require 'ui'
@@ -16,14 +16,14 @@ Icon = require 'icon'
 
 exports.render = !->
 
-	myLoc = Db.shared.get('dist', Plugin.userId())
+	myLoc = Db.shared.get('dist', App.userId())
 	base = Db.shared.get('base')
 
 	Dom.style textAlign: 'center'
 
 	if !Geoloc.isSubscribed()
 		Dom.div !->
-			Dom.style position: 'relative', margin: '10px 10px 20px 10px', padding: '10px', border: '1px solid #aaa', borderRadius: '10px'
+			Dom.style position: 'relative', margin: '10px 10px 20px 10px', padding: '10px', border: '1px solid #aaa', borderRadius: '10px', backgroundColor: '#EEE'
 			Dom.div !->
 				Dom.style
 					position: 'absolute'
@@ -46,7 +46,7 @@ exports.render = !->
 	if !base
 		Dom.div !->
 			Dom.style fontWeight: 'bold', margin: '40px', fontSize: '120%', color: '#999', textShadow: '0 1px 0 #fff'
-			if Plugin.userIsAdmin() or Plugin.ownerId() is Plugin.userId()
+			if App.userIsAdmin() or App.ownerId() is App.userId()
 				Dom.text tr("Configure the base location in the plugin settings")
 			else
 				Dom.text tr("The base location for this plugin hasn't been configured yet")
@@ -58,30 +58,32 @@ exports.render = !->
 	renderUsers = (type) !->
 		userCount = Obs.create(0)
 		if Geoloc.isSubscribed()
-			Plugin.users.observeEach (user) !->
+			App.users.observeEach (user) !->
 				userCount.incr()
 				Obs.onClean !->
 					userCount.incr(-1)
 				Dom.div !->
 					ew = type is 'elsewhere'
 					time = Db.shared.get('nearby', user.key(), 'time') * 0.001
-					age = Plugin.time()-time
+					age = App.time()-time
 					Dom.style
 						Box: 'center middle'
 						display: 'inline-block'
 						opacity: if !time or age > 30*60 then '0.35' else (if age > 15*60 then '0.6' else '1')
 						margin: '6px 2px'
 						width: if ew then '50px' else '70px'
-					Ui.avatar Plugin.userAvatar(user.key()),
+					Ui.avatar App.userAvatar(user.key()),
 						style: display: 'inline-block', margin: '0 0 1px 0'
 						size: (if ew then 40 else 60)
-						onTap: (!-> Plugin.userInfo(user.key()))
+						onTap: (!-> App.showMemberInfo(user.key()))
 
 					Dom.div !->
 						Dom.style overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
 						if ew
 							Dom.style fontSize: '75%'
-						Dom.text Plugin.userName(user.key())
+						else
+							Dom.style fontSize: '85%'
+						Dom.text App.userName(user.key())
 					if time
 						Dom.div !->
 							Dom.style fontSize: (if ew then '60%' else '75%'), marginTop: '-1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
@@ -92,7 +94,7 @@ exports.render = !->
 			, (user) ->
 				nearby = Db.shared.get('nearby', user.key(), 'nearby')
 				time = Db.shared.get('nearby', user.key(), 'time') * 0.001
-				age = Plugin.time()-time
+				age = App.time()-time
 				if age > 24*60*60 or !nearby?
 					if type is 'unknown'
 						-time
@@ -114,12 +116,15 @@ exports.render = !->
 			else
 				Dom.style display: 'none'
 
+	Page.setCardBackground()
+
 	Dom.section !->
-		name = Db.shared.get('locationName')||tr("On location")
+		Dom.style padding: 12
+		name = App.title()||tr("On location")
 		Dom.div !->
 			Dom.style fontWeight: 'bold', fontSize: '120%', color: '#999', marginBottom: '4px'
 			Dom.text name
-			
+
 		renderUsers 'nearby'
 
 	Dom.div !->
@@ -135,121 +140,91 @@ exports.render = !->
 	renderUsers 'unknown'
 	###
 
+	Obs.observe !->
+		if Geoloc.isSubscribed()
+			tracker = Geoloc.track(0, 1)
 	return
 
 
 exports.renderSettings = !->
-	Dom.div !->
-		Dom.style margin: '0 -6px 6px -6px'
-		
-		Form.box !->
-			Dom.style padding: '0 8px 8px 8px'
-			Form.input
-				name: 'locationName'
-				text: tr 'Location name'
-				value: Db.shared.func('locationName') if Db.shared
+	Form.input
+		name: '_title'
+		text: tr 'Location name'
+		value: App.title()
 
-		Form.condition (val) ->
-			tr("A location name is required") if !val.locationName
+	Form.condition (val) ->
+		tr("A location name is required") if !val._title
 
-		Form.sep()
-		Form.box !->
 
-			if base = Db.shared?.get('base')
-				value = base.latitude + ',' + base.longitude
+	[baseHandle] = Form.makeInput
+		name: 'base'
+		value: null
+		content: (value) !->
+			Form.box
+				content: tr("Base location")
+				sub: !->
+					if !value
+						Dom.text tr("Not set")
+						return
+					#Geoloc.resolve value
+					valueF = value.split(',').map((x)->Math.round(x*10000)/10000).join(', ')
+					Dom.text tr("Near %1", valueF)
+				onTap: !->
+					Geoloc.auth !->
+						state = Geoloc.track()
 
-			Dom.text tr("Base location")
-			[handleChange] = Form.makeInput
-				name: 'base'
-				value: value
-				content: (value) !->
-					Dom.div !->
-						if !value
-							Dom.text tr("Not set")
-							return
-						#Geoloc.resolve value
-						valueF = value.split(',').map((x)->Math.round(x*10000)/10000).join(', ')
-						Dom.text tr("Near %1", valueF)
+						Modal.show tr("Base location"), !->
+							Dom.div tr("Set base location to your current location?")
+							Dom.div !->
+								#Dom.text JSON.stringify(state.get())
+								Dom.style marginTop: '8px', color: '#999', fontSize: '85%'
+								ac = state.get('accuracy')
+								Dom.text tr("Current location accuracy: %1m", if ac? then Math.round(ac) else '?')
+						, (choice) !->
+							if choice is 'ok' and state.get('ok')
+								baseHandle state.get('latlong')
+							else if choice is 'ok'
+								Modal.show tr("No accurate location.")
 
-			Dom.onTap !->
-				Geoloc.auth !->
-					state = Geoloc.track()
-				
-					Modal.show tr("Base location"), !->
-						Dom.div tr("Set base location to your current location?")
-						Dom.div !->
-							#Dom.text JSON.stringify(state.get())
-							Dom.style marginTop: '8px', color: '#999', fontSize: '85%'
-							ac = state.get('accuracy')
-							Dom.text tr("Current location accuracy: %1m", if ac? then Math.round(ac) else '?')
-					, (choice) !->
-						if choice is 'ok' and state.get('ok')
-							handleChange state.get('latlong')
-						else if choice is 'ok'
-							Modal.show tr("No accurate location.")
-
-					, ['cancel', tr("Cancel"), 'ok', !->
-						Dom.div !->
+						, ['cancel', tr("Cancel"), 'ok', !->
 							if state.get('ok')
 								Dom.style color: ''
 								Dom.text tr("Set location")
 							else
 								Dom.style color: '#aaa'
 								Dom.text tr("No location")
-					]
+						]
+				icon: 'map3'
 
-			Icon.render
-				data: 'map3'
-				color: '#ba1a6e'
-				style:
-					position: 'absolute'
-					right: '10px'
-					top: '50%'
-					marginTop: '-14px'
+	Obs.observe !->
+		radius = Db.shared?.get('radius')||150
+		[radiusHandle] = Form.makeInput
+			name: 'radius'
+			value: radius
+			content: (value) !->
+				Form.box
+					content: !-> Dom.text tr("%1 meters", value)
+					onTap: !->
+						Modal.show tr("Select radius"), !->
+							opts = [150, 250, 500, 1000, 2500, 5000]
+							for rad in opts then do (rad) !->
+								Ui.item !->
+									Dom.text tr("%1 meters", rad)
+									if radius is rad
+										Dom.style fontWeight: 'bold'
 
-		Form.sep()
-		Form.box !->
+										Dom.div !->
+											Dom.style
+												Flex: 1
+												padding: '0 10px'
+												textAlign: 'right'
+												fontSize: '150%'
+												color: App.colors().highlight
+											Dom.text "✓"
+									Dom.onTap !->
+										radiusHandle rad
+										radius = rad
+										Modal.remove()
 
-			radius = Db.shared?.get('radius')||150
-
-			Dom.text tr("Radius")
-			[handleChange] = Form.makeInput
-				name: 'radius'
-				value: radius
-				content: (value) !->
-					Dom.div !->
-						Dom.text tr("%1 meters", value)
-
-			Dom.onTap !->
-				Modal.show tr("Select radius"), !->
-					Dom.style width: '60%'
-					opts = [150, 250, 500, 1000, 2500, 5000]
-					Dom.div !->
-						Dom.style
-							maxHeight: '45.5%'
-							backgroundColor: '#eee'
-							margin: '-12px'
-						Dom.overflow()
-						for rad in opts then do (rad) !->
-							Ui.item !->
-								Dom.text tr("%1 meters", rad)
-								if radius is rad
-									Dom.style fontWeight: 'bold'
-
-									Dom.div !->
-										Dom.style
-											Flex: 1
-											padding: '0 10px'
-											textAlign: 'right'
-											fontSize: '150%'
-											color: Plugin.colors().highlight
-										Dom.text "✓"
-								Dom.onTap !->
-									handleChange rad
-									radius = rad
-									Modal.remove()
-
-		Form.sep()
-
-		Form.condition (val) ->
-			tr("A base location is required") if !val.base
+	Form.condition (val) ->
+		tr("A base location is required") if !val.base

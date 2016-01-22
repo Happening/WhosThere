@@ -1,11 +1,8 @@
 Db = require 'db'
 Event = require 'event'
-Plugin = require 'plugin'
+App = require 'app'
 Geoloc = require 'geoloc'
 Timer = require 'timer'
-
-exports.getTitle = ->
-	Db.shared.get 'locationName'
 
 exports.onInstall = exports.onConfig = (config) !->
 	return if !config?
@@ -18,9 +15,6 @@ exports.onInstall = exports.onConfig = (config) !->
 		base = {}
 		Db.shared.remove 'base'
 
-	if name = config.locationName
-		Db.shared.set 'locationName', name
-
 	oldRadius = Db.shared?.get('radius')
 	if radius = config.radius
 		Db.shared.set 'radius', radius
@@ -31,10 +25,10 @@ exports.onInstall = exports.onConfig = (config) !->
 			onGeoloc userId, geoloc
 
 	# maybe also notify when distance of previous base location is far away
-	if !oldBase and base.latitude and base.longitude and name
+	if !oldBase and base.latitude and base.longitude and App.title()
 		Event.create
 			unit: 'other'
-			text: "#{Plugin.userName()} set the base location for '#{name}'"
+			text: "#{App.userName()} set the base location for '#{App.title()}'"
 
 exports.client_update = !->
 	userIds = Geoloc.request('all')
